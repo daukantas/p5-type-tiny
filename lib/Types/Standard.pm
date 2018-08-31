@@ -155,6 +155,20 @@ sub LazyLoad ($$)
 	bless \@_;
 }
 
+sub _simple_default_value_generator {
+	my $code = shift;
+	my ($c1, $c2); # cached
+	default_value_generator => sub {
+		my $type = shift;
+		($c1) ?
+			$c1 :
+		($INC{'Sub/Quote.pm'} and 'Sub::Quote'->can('quote_sub')) ?
+			($c1 = Sub::Quote::quote_sub($code, {'$type'=>\$type})) :
+		!!1 ?
+			($c2 ||= Eval::TypeTiny::eval_closure(source => qq{sub{$code}}, environment => {'$type'=>\$type})) : die('oops');
+	}, @_;
+}
+
 no warnings;
 
 BEGIN { *STRICTNUM = $ENV{PERL_TYPES_STANDARD_STRICTNUM} ? sub(){!!1} : sub(){!!0} };
@@ -184,6 +198,7 @@ my $_undef = $meta->$add_core_type({
 	parent     => $_item,
 	constraint => sub { !defined $_ },
 	inlined    => sub { "!defined($_[1])" },
+	_simple_default_value_generator q{ undef; },
 });
 
 my $_def = $meta->$add_core_type({
@@ -211,6 +226,7 @@ my $_str = $meta->$add_core_type({
 	inlined    => sub {
 		"defined($_[1]) and do { ref(\\$_[1]) eq 'SCALAR' or ref(\\(my \$val = $_[1])) eq 'SCALAR' }"
 	},
+	_simple_default_value_generator q{ "" },
 });
 
 my $_laxnum = $meta->add_type({
@@ -218,6 +234,7 @@ my $_laxnum = $meta->add_type({
 	parent     => $_str,
 	constraint => sub { looks_like_number $_ },
 	inlined    => sub { "defined($_[1]) && !ref($_[1]) && Scalar::Util::looks_like_number($_[1])" },
+	_simple_default_value_generator q{ 0 },
 });
 
 my $_strictnum = $meta->add_type({
@@ -244,11 +261,13 @@ my $_strictnum = $meta->add_type({
 			(?:[Ee](?:[+-]?[0-9]+))?          # matches E1 or e1 or e-1 or e+1 etc
 		\z/x ); '
 	},
+	_simple_default_value_generator q{ 0 },
 });
 
 my $_num = $meta->add_type({
 	name       => "Num",
 	parent     => (STRICTNUM ? $_strictnum : $_laxnum),
+	_simple_default_value_generator q{ 0 },
 });
 
 $meta->$add_core_type({
@@ -360,6 +379,7 @@ my $_arr = $meta->$add_core_type({
 	inline_generator     => LazyLoad(ArrayRef => 'inline_generator'),
 	deep_explanation     => LazyLoad(ArrayRef => 'deep_explanation'),
 	coercion_generator   => LazyLoad(ArrayRef => 'coercion_generator'),
+	_simple_default_value_generator q{ [] },
 });
 
 my $_hash = $meta->$add_core_type({
@@ -377,6 +397,7 @@ my $_hash = $meta->$add_core_type({
 		hashref_allows_key   => LazyLoad(HashRef => 'hashref_allows_key'),
 		hashref_allows_value => LazyLoad(HashRef => 'hashref_allows_value'),
 	},
+	_simple_default_value_generator q{ {} },
 });
 
 $meta->$add_core_type({
@@ -388,6 +409,7 @@ $meta->$add_core_type({
 	inline_generator     => LazyLoad(ScalarRef => 'inline_generator'),
 	deep_explanation     => LazyLoad(ScalarRef => 'deep_explanation'),
 	coercion_generator   => LazyLoad(ScalarRef => 'coercion_generator'),
+	_simple_default_value_generator q{ my $x; \$x },
 });
 
 my $_obj = $meta->$add_core_type({
@@ -469,6 +491,7 @@ $meta->$add_core_type({
 		return unless $param->has_coercion;
 		return $param->coercion;
 	},
+	_simple_default_value_generator q{ undef; },
 });
 
 my $_map = $meta->$add_core_type({
@@ -540,6 +563,7 @@ $meta->$add_core_type({
 	inline_generator     => LazyLoad(Tuple => 'inline_generator'),
 	deep_explanation     => LazyLoad(Tuple => 'deep_explanation'),
 	coercion_generator   => LazyLoad(Tuple => 'coercion_generator'),
+	default    => 0,
 });
 
 $meta->add_type({
@@ -554,6 +578,7 @@ $meta->add_type({
 	inline_generator     => LazyLoad(CycleTuple => 'inline_generator'),
 	deep_explanation     => LazyLoad(CycleTuple => 'deep_explanation'),
 	coercion_generator   => LazyLoad(CycleTuple => 'coercion_generator'),
+	default    => 0,
 });
 
 $meta->add_type({
@@ -575,6 +600,7 @@ $meta->add_type({
 		hashref_allows_key   => LazyLoad(Dict => 'hashref_allows_key'),
 		hashref_allows_value => LazyLoad(Dict => 'hashref_allows_value'),
 	},
+	default    => 0,
 });
 
 use overload ();
@@ -617,6 +643,7 @@ $meta->add_type({
 	parent     => $_str,
 	constraint_generator => LazyLoad(StrMatch => 'constraint_generator'),
 	inline_generator     => LazyLoad(StrMatch => 'inline_generator'),
+	default    => 0,
 });
 
 $meta->add_type({

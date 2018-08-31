@@ -210,6 +210,21 @@ sub validate_explain
 	];
 }
 
+our %DEFAULT_VALUE;
+
+sub has_default_value
+{
+	my $self = shift;
+	exists $self->{default} or exists $DEFAULT_VALUE{$self->class};
+}
+
+sub default_value
+{
+	my $self = shift;
+	exists $self->{default}             ? $self->{default} :
+	exists $DEFAULT_VALUE{$self->class} ? $DEFAULT_VALUE{$self->class} : undef;
+}
+
 1;
 
 __END__

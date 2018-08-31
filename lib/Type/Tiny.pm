@@ -279,6 +279,11 @@ sub new
 	return $self;
 }
 
+$Type::Tiny::Class::DEFAULT_VALUE{+__PACKAGE__} = sub {
+	require Types::Standard;
+	Types::Standard::Any();
+};
+
 sub DESTROY
 {
 	my $self = shift;
@@ -343,6 +348,7 @@ sub message                  { $_[0]{message} }
 sub library                  { $_[0]{library} }
 sub inlined                  { $_[0]{inlined} }
 sub deprecated               { $_[0]{deprecated} }
+sub default_value_generator  { $_[0]{default_value_generator} }
 sub constraint_generator     { $_[0]{constraint_generator} }
 sub inline_generator         { $_[0]{inline_generator} }
 sub name_generator           { $_[0]{name_generator} ||= $_[0]->_build_name_generator }
@@ -357,6 +363,7 @@ sub has_parent               { exists $_[0]{parent} }
 sub has_library              { exists $_[0]{library} }
 sub has_coercion             {        $_[0]{coercion} and !!@{ $_[0]{coercion}->type_coercion_map } }
 sub has_inlined              { exists $_[0]{inlined} }
+sub has_default_value_generator { exists $_[0]{default_value_generator} }
 sub has_constraint_generator { exists $_[0]{constraint_generator} }
 sub has_inline_generator     { exists $_[0]{inline_generator} }
 sub has_coercion_generator   { exists $_[0]{coercion_generator} }
@@ -1071,6 +1078,46 @@ sub coercibles
 	$self->has_coercion ? $self->coercion->_source_type_union : $self;
 }
 
+sub spec
+{
+	my $self = shift;
+	
+	# Build basic %spec
+	my %spec = (is => 'ro', isa => $self);
+	my $default;
+	if (my $parent = $self->find_parent(sub { $_->has_default_value_generator })) {
+		$default = $parent->default_value_generator->($self)
+			if $parent && $parent->default_value_generator;
+	}
+	if ($self->has_coercion) {
+		$spec{coerce} = 1;
+		if ($INC{'Moo.pm'} and Moo->VERSION lt '1.006000') {
+			$spec{coerce} = $self->coercion;
+		}
+	}
+	
+	# Allow user to modify %spec
+	my %extra;
+	while (@_) {
+		my $key = shift;
+		
+		if ($key eq '-required')      { $spec{required} = 1; delete $spec{default} }
+		elsif ($key eq '-req')        { $spec{required} = 1; delete $spec{default} }
+		elsif ($key eq '-rw')         { $spec{is} = 'rw'                           }
+		elsif ($key eq '-rwp')        { $spec{is} = 'rwp'                          }
+		elsif ($key eq '-default')    { $spec{default} = $default if $default      }
+		elsif ($key eq '-nodefault')  {                     delete $spec{default}  }
+		elsif ($key eq '-nocoerce')   {                     delete $spec{coerce}   }
+		elsif ($key eq '-where' or $key eq 'where')
+		                              { $spec{isa} = $spec{isa}->where(shift)      }
+		elsif ($key =~ /^-/)          { _croak("Unsupported option: $key")         }
+		else                          { $extra{$key} = shift                       }
+	}
+	
+	delete $spec{default} if exists $extra{builder};
+	%spec = (%spec, %extra);
+}
+
 sub isa
 {
 	my $self = shift;
@@ -1184,8 +1231,17 @@ sub _has_xsub
 	!!B::svref_2object( shift->compiled_check )->XSUB;
 }
 
+sub where
+{
+	my $self = shift;
+	my %spec = (constraint => @_);
+	if (!exists $spec{coercion} and $self->has_coercion) {
+		$spec{coercion} = 1;
+	}
+	$self->create_child_type(%spec);
+}
+
 sub of                         { shift->parameterize(@_) }
-sub where                      { shift->create_child_type(constraint => @_) }
 
 # fill out Moose-compatible API
 sub inline_environment         { +{} }
@@ -1364,6 +1420,21 @@ you should rely on the default lazily-built coercion object.
 You may pass C<< coercion => 1 >> to the constructor to inherit coercions
 from the constraint's parent. (This requires the parent constraint to have
 a coercion.)
+
+=item C<< default_value_generator >>
+
+Can be set to a coderef that when called (and passed the type object as
+an argument in C<< @_ >>) generates I<another> coderef, which when called
+with no arguments generates a value that could be considered a default for
+this type constraint. The default value for a string might be the empty
+string. The default value for an integer might be zero. The default
+value for an arrayref might be a reference to a new empty array.
+
+Can also be set to 0 indicating that the parent type's default value
+generator isn't suitable for this type constraint. For example, the
+parent of a NonEmptyArrayRef type constraint might be ArrayRef. If the
+default value generator for an ArrayRef provides an empty arrayref, this
+default would not be suitable for the NonEmptyArrayRef type constraint.
 
 =item C<< my_methods >>
 
@@ -1746,6 +1817,68 @@ I<ignore> this custom message!!
 
 For non-anonymous type constraints that have a library, returns a qualified
 C<< "MyLib::MyType" >> sort of name. Otherwise, returns the same as C<name>.
+
+=item C<< spec(@flags, %extras) >>
+
+Returns a fully-formed attribute specification for Moose/Mouse/Moo. This
+provides a slightly shorter syntax for specifying attributes.
+
+  has title => Str->spec;
+  # has title => (is => "ro", isa => Str);
+  
+  has title => Str->spec(-rw);
+  # has title => (is => "rw", isa => Str);
+  
+  has title => Str->spec(-rw, predicate => "has_title");
+  # has title => (is => "rw", isa => Str, predicate => "has_title");
+  
+  has title => Str->spec(-rw,-default);
+  # has title => (is => "rw", isa => Str, default => "");
+  
+  has title => Str->spec(-rw, default => "Untitled");
+  # has title => (is => "rw", isa => Str, default => "Untitled");
+
+The following flags are defined:
+
+=over
+
+=item C<< -rw >>
+
+Sets << is => "rw" >> instead of the default C<< is => "ro" >>.
+
+=item C<< -rwp >>
+
+Sets << is => "rwp" >> instead of the default C<< is => "ro" >>.
+Only works in Moo.
+
+=item C<< -req >> or C<< -required >>
+
+Sets << required => 1 >>.
+
+=item C<< -default >> and C<< -nodefault >>
+
+Indicates whether the type constraint should attempt to provide a default
+value for the attribute. (Currently, if left unspecified, Type::Tiny
+doesn't automatically provide a default, as this behaviour has been deemed
+confusing.)
+
+=item C<< -nocoerce >>
+
+Sets C<< coerce => 0 >>. Otherwise C<< coerce => 1 >> will be automatically
+be set for any types which have coercions.
+
+=item C<< -where => CodeRef|Str >>
+
+Further constrains the type constraint.
+
+  has counter => Int->spec(-rw,-default,-where => sub { $_ >= 0 })
+
+=back
+
+After the list of flags, additional options may be passed to the
+attribute spec as a hash. Type::Tiny can tell where the C<< @flags >>
+array ends and the C<< %extras >> hash starts because all flags
+begin with a hyphen.
 
 =item C<< isa($class) >>, C<< can($method) >>, C<< AUTOLOAD(@args) >>
 
