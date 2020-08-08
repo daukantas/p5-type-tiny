@@ -824,7 +824,7 @@ Returns true iff the coercion can be inlined.
 
 =item C<< inline_coercion($varname) >>
 
-Much like C<inline_coerce> from L<Type::Tiny>.
+Much like C<inline_check> from L<Type::Tiny>.
 
 =back
 

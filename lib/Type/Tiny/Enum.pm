@@ -207,6 +207,30 @@ push @Type::Tiny::CMP, sub {
 	return Type::Tiny::CMP_UNKNOWN;
 };
 
+sub has_sorter {
+	!!1;
+}
+
+sub _enum_order_hash {
+	my $self = shift;
+	my %hash;
+	my $i = 0;
+	for my $value (@{ $self->values }) {
+		next if exists $hash{$value};
+		$hash{$value} = $i++;
+	}
+	return %hash;
+}
+
+sub sorter {
+	my $self = shift;
+	my %hash = $self->_enum_order_hash;
+	return [
+		sub { $_[0] <=> $_[1] },
+		sub { exists($hash{$_[0]}) ? $hash{$_[0]} : 2_100_000_000 },
+	];
+}
+
 1;
 
 __END__
