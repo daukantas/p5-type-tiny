@@ -326,8 +326,13 @@ sub add_type
 		? $type->coercion->compiled_coercion
 		: sub ($) { $type->coerce($_[0]) };
 	
+	my $check   = $type->compiled_check;
+	my $is_type = $type->is_parameterizable
+		? sub { goto $check if @_==1; $type->parameterize(@_[1..$#_])->($_[0]) }
+		: $check;
+	
 	*{"$class\::$name"}        = $class->_mksub($type);
-	*{"$class\::is_$name"}     = _subname "$class\::is_$name", $type->compiled_check;
+	*{"$class\::is_$name"}     = _subname "$class\::is_$name", $is_type;
 	*{"$class\::to_$name"}     = _subname "$class\::to_$name", $to_type;
 	*{"$class\::assert_$name"} = _subname "$class\::assert_$name", $type->_overload_coderef;
 	
