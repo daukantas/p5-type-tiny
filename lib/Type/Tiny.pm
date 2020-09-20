@@ -2142,13 +2142,34 @@ C<StrictNum>, C<LaxNum>, and C<Enum> type constraints include sorters.
 
 =item C<< rsort(@list) >>
 
+Like C<sort> but backwards.
+
 =item C<< any(@list) >>
+
+Returns true if any of the list match the type.
+
+  if ( Int->any(@numbers) ) {
+    say "there was at least one integer";
+  }
 
 =item C<< all(@list) >>
 
+Returns true if all of the list match the type.
+
+  if ( Int->any(@numbers) ) {
+    say "they were all integers";
+  }
+
 =item C<< assert_any(@list) >>
 
+Like C<any> but instead of returning a boolean, returns the entire original
+list if any item on it matches the type, and dies if none does.
+
 =item C<< assert_all(@list) >>
+
+Like C<all> but instead of returning a boolean, returns the original list if
+all items on it match the type, but dies as soon as it finds one that does
+not.
 
 =back
 
