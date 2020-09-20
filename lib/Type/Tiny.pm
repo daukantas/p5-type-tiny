@@ -1302,6 +1302,13 @@ sub can
 			my $method = $self->_lookup_my_method($1);
 			return $method if $method;
 		}
+		
+		for my $util ( qw/ grep map sort rsort first any all assert_any assert_all / ) {
+			if ( $_[0] eq $util ) {
+				$self->{'_util'}{$util} ||= $self->_build_util($util);
+				return sub { my $s = shift; $s->{'_util'}{$util}(@_) };
+			}
+		}
 	}
 
 	if ($self->{is_object} && $object_methods{$_[0]}) {
@@ -1329,6 +1336,12 @@ sub AUTOLOAD
 		{
 			my $method = $self->_lookup_my_method($1);
 			return &$method($self, @_) if $method;
+		}
+		
+		for my $util ( qw/ grep map sort rsort first any all assert_any assert_all / ) {
+			if ( $m eq $util ) {
+				return ( $self->{'_util'}{$util} ||= $self->_build_util($util) )->( @_ );
+			}
 		}
 	}
 	
@@ -1477,14 +1490,6 @@ sub _build_util {
 	die "Unknown function: $func";
 }
 
-foreach my $func ( qw/ grep map sort rsort first any all assert_any assert_all / ) {
-	# This happens at runtime deliberately
-	eval "sub $func {
-		my \$self = shift;
-		\$self->{'_util'}{'$func'} = \$self->_build_util('$func');
-		\$self->{'_util'}{'$func'}->(\@_);
-	}";
-}
 
 1;
 
